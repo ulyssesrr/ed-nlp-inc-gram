@@ -37,9 +37,9 @@ if sys.stdout.encoding == None:
 
 (options, args) = parser.parse_args()
 
-if len(args) == 0:
-	parser.print_help()
-	sys.exit()
+#if len(args) == 0:
+	#parser.print_help()
+	#sys.exit()
 
 
 
@@ -62,7 +62,7 @@ logging.getLogger().addHandler(handler)
 log = logging.getLogger('main')
 log.setLevel(logging.DEBUG)
 
-with open("input.txt", encoding="latin_1") as f:
+with open("input.txt") as f:
 	text = f.readlines()
 	inputs = [i.replace("\n", "").lower().split(";") for i in text]
 	log.info(inputs)
@@ -137,7 +137,7 @@ print(tagger2.evaluate(test))
 #print(fd.keys())
 
 tokenizer = re.compile('\w+')
-for s in sentences:
+for input_id, s in enumerate(sentences):
 	log.info("Sentence: %s" % (s))
 	candidates_simple, candidates_med, candidates_full = get_candidates([s]) 
 	print(candidates_simple)
@@ -165,3 +165,22 @@ for s in sentences:
 	
 	gram_sim = cosine_similarity(X_vect, tagged_sent_vect)
 	print(gram_sim)
+	
+	gram_rank = gram_sim
+	
+	top_idx = np.argmax(gram_rank)
+	top_gram = candidates_simple[top_idx]
+	print(top_gram)
+	
+	log.info("%s: Writing results..." % (inputs[input_id]))
+	with open("gram-%d.txt" % (input_id), 'w') as f:
+		f.write("%s\n" % (inputs[input_id]))
+		f.write("Meta: %s\n" % (" ".join(tagged_sent)))
+		sorted_grams_idx = np.argsort(-gram_rank, axis=0)
+		print("sorted_grams_idx",sorted_grams_idx)
+		for i, gram_idx in enumerate(sorted_grams_idx):
+			gram = candidates_simple[gram_idx][0]
+			print(gram_idx, gram)
+			f.write("%d: %s - %.03f\n" % (i, " ".join(gram), gram_rank[gram_idx]))
+log.info("Finished")
+	

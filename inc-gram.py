@@ -27,6 +27,7 @@ from nltk.corpus import mac_morpho
 
 parser = OptionParser(usage="%prog [options] <datasetdir>")
 parser.add_option("-e", "--encoding", dest="encoding", default="latin_1", help="Dataset encoding")
+parser.add_option("-r", "--initial-ranking", dest="ranking_method", default="cosine_similarity", help="Initial ranking method (cosine_similarity, accuracy) Default: cosine_similarity")
 
 if sys.stdout.encoding == None:
 	print("Fixing stdout encoding...")
@@ -67,7 +68,7 @@ with open("input.txt") as f:
 	inputs = [i.replace("\n", "").lower().split(";") for i in text]
 	log.info(inputs)
 
-dataset_folder = args[0]
+#dataset_folder = args[0]
 
 lexicon = Lexicon("/home/ulysses/Applications/Unitex3.1beta/Portuguese (Brazil)/Dela/")
 
@@ -123,13 +124,13 @@ tsents = [[(w.lower(),simplify_tag(t)) for (w,t) in sent] for sent in tsents if 
 
 train = tsents
 test = tsents[:300]
-print("Training POS Taggers...")
+log.info("Training POS Taggers...")
 tagger0 = nltk.DefaultTagger('N')
 tagger1 = nltk.UnigramTagger(train, backoff=tagger0)
 tagger2 = nltk.BigramTagger(train, backoff=tagger1)
 
-log.info("Evaluate tagger")
-print(tagger2.evaluate(test))
+#log.info("Evaluate tagger")
+#print(tagger2.evaluate(test))
 
 #log.info("TAGSET")
 #tags = [simplify_tag(tag) for (word,tag) in mac_morpho.tagged_words()]
@@ -140,47 +141,55 @@ tokenizer = re.compile('\w+')
 for input_id, s in enumerate(sentences):
 	log.info("Sentence: %s" % (s))
 	candidates_simple, candidates_med, candidates_full = get_candidates([s]) 
-	print(candidates_simple)
+	#print(candidates_simple)
 	tagged_sent = [tagger2.tag([w])[0][1] for w in tokenizer.findall(s)]
-	print(s, tagged_sent)
+	#print(s, tagged_sent)
 	candidates_simple = np.array(list(candidates_simple))
 	tagged_sent = np.array(tagged_sent)
 	gram_acc = candidates_simple == tagged_sent
-	print(gram_acc)
+	#print(gram_acc)
 	gram_acc = gram_acc.astype(np.float64).sum(axis=1) / gram_acc.shape[1]
-	print(gram_acc)
+	#print(gram_acc)
 	
 	log.info("Vectorizing...")
 	count_vect = CountVectorizer(dtype=np.float64, token_pattern='\w+')
 	X = [" ".join(tokens) for tokens in candidates_simple]
 	#print(X)
 	X_vect = count_vect.fit_transform(X)
-	print(X_vect.todense())
+	#print(X_vect.todense())
 	tagged_sent_vect = count_vect.transform([" ".join(tagged_sent)])[0]
 	#print(tagged_sent_vect)
-	print(X[0])
-	print(" ".join(tagged_sent))
-	print(tagged_sent_vect.todense())
+	#print(X[0])
+	#print(" ".join(tagged_sent))
+	#print(tagged_sent_vect.todense())
 	log.info("(%d, %d)" % (X_vect.shape[0],X_vect.shape[1]))
 	
 	gram_sim = cosine_similarity(X_vect, tagged_sent_vect)
-	print(gram_sim)
+	#print(gram_sim)
 	
-	gram_rank = gram_sim
+	if options.ranking_method == "cosine_similarity":
+		log.info("Using cosine_similarity ranking...")
+		gram_rank = gram_sim
+	elif options.ranking_method == "accuracy":
+		log.info("Using accuracy ranking...")
+		gram_rank = gram_acc
+	else:
+		log.warning("Unknown ranking method %s ignored, using cosine_similarity")
+		gram_rank = gram_sim
 	
 	top_idx = np.argmax(gram_rank)
 	top_gram = candidates_simple[top_idx]
-	print(top_gram)
+	#print(top_gram)
 	
 	log.info("%s: Writing results..." % (inputs[input_id]))
 	with open("gram-%d.txt" % (input_id), 'w') as f:
 		f.write("%s\n" % (inputs[input_id]))
 		f.write("Meta: %s\n" % (" ".join(tagged_sent)))
 		sorted_grams_idx = np.argsort(-gram_rank, axis=0)
-		print("sorted_grams_idx",sorted_grams_idx)
+		#print("sorted_grams_idx",sorted_grams_idx)
 		for i, gram_idx in enumerate(sorted_grams_idx):
 			gram = candidates_simple[gram_idx][0]
-			print(gram_idx, gram)
+			#print(gram_idx, gram)
 			f.write("%d: %s - %.03f\n" % (i, " ".join(gram), gram_rank[gram_idx]))
 log.info("Finished")
 	

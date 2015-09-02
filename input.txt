@@ -1,2 +1,1 @@
 O gato;O gato pulou o muro.
-O cachorro;O cachorro latiu.

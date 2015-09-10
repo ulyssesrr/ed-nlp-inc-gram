@@ -18,6 +18,7 @@ import functools
 from optparse import OptionParser
 
 import numpy as np
+import random
 
 from scipy import sparse as sp
 
@@ -89,7 +90,9 @@ class ClusteringSelectStrategy2:
 		n_clusters = math.floor(len(candidates)/2)
 		kmeans = KMeans(n_clusters=n_clusters, n_jobs=-1)
 		kmeans.fit(gram_rank)
-		order_centroids = kmeans.cluster_centers_.argsort()[:, ::-1]
+		#order_centroids = kmeans.cluster_centers_.argsort()[:, ::-1]
+		top_centroid = kmeans.cluster_centers_.argmax(axis=0)[0]
+		return random.choice(candidates[np.where(kmeans.labels_ == top_centroid)])
 		#print(order_centroids)
 		#for i in range(n_clusters):
 			#print("Cluster %d:" % i, end='')
@@ -97,6 +100,8 @@ class ClusteringSelectStrategy2:
 				#print(candidates_simple[ind])
 				
 		log.info("Getting centers...")
+		print(kmeans.cluster_centers_)
+		print(ordered_centroids)
 		for label in range(n_clusters):
 			label_idxs = np.where(kmeans.labels_ == label)
 			#print("CENTER", kmeans.cluster_centers_[label])
@@ -249,6 +254,14 @@ def find_dataset_match(tagged_dataset, grammar):
 	with Pool() as p:
 		f = functools.partial(find_sentence_match, grammar=grammar)
 		return list(filter(lambda r : r != None, p.map(f, tagged_dataset)))
+	
+def apply_score(candidates, gram_rank, sample, correct):
+	score = 0.2
+	mul = 1 if correct else -1
+	for i, grammar in enumerate(candidates):
+		match = find_sentence_match(sample, grammar)
+		mul = mul if match != None else mul*-1
+		gram_rank[i] += score*mul
 
 tokenizer = re.compile('\w+')
 for input_id, s in enumerate(sentences):
@@ -256,17 +269,20 @@ for input_id, s in enumerate(sentences):
 	candidates_simple, candidates_med, candidates_full = get_candidates([s]) 
 	candidates_simple, candidates_med, candidates_full = list(candidates_simple), list(candidates_med), list(candidates_simple)
 	samples = []
+	log.info("Verifying grammars...")
+	pruned_grammars = 0
 	for i, cand_simple in enumerate(candidates_simple):
 		sample = find_dataset_match(tagged_dataset, cand_simple)
-		print(i, cand_simple, len(sample))
+		#print(i, cand_simple, len(sample))
 		if len(sample) == 0:
 			del candidates_simple[i]
 			del candidates_med[i]
 			del candidates_full[i]
+			pruned_grammars += 1
 		else:
 			samples += [sample]
-			print(sample[0])
-	
+			#print(sample[0])
+	log.info("Pruned %d grammars..." % (pruned_grammars))
 	candidates_simple, candidates_med, candidates_full = np.array(candidates_simple), np.array(candidates_med), np.array(candidates_simple)
 	#print(candidates_simple)
 	tagged_sent = [tagger2.tag([w])[0][1] for w in tokenizer.findall(s)]
@@ -303,13 +319,24 @@ for input_id, s in enumerate(sentences):
 		log.warning("Unknown ranking method %s ignored, using cosine_similarity" % (options.ranking_method))
 		gram_rank = gram_sim
 	
-	top_idx = np.argmax(gram_rank)
-	top_gram = candidates_simple[top_idx]
-	#print(top_gram)
-	sorted_grams_idx = np.argsort(-gram_rank, axis=0)
+	while True:
+		top_idx = np.argmax(gram_rank)
+		top_gram = candidates_simple[top_idx]
+		print("CURRENT BEST: ",top_gram)
+		sorted_grams_idx = np.argsort(-gram_rank, axis=0)
+		
+		selection_strategy = ClusteringSelectStrategy2()
+		selected_grammar = selection_strategy.select_grammar(X_vect, candidates_simple, sorted_grams_idx, gram_rank)
+		print(selected_grammar)
+		sample = find_dataset_match(tagged_dataset, selected_grammar)[0]
+		print(sample)
+		
+		answer = ""
+		while not answer in ('s', 'n'):
+			answer = input('O Exemplo é pertinente? (s/n)').lower()
+			
+		apply_score(candidates_simple, gram_rank, sample, answer == 's')
 	
-	selection_strategy = ClusteringSelectStrategy2()
-	selection_strategy.select_grammar(X_vect, candidates_simple, sorted_grams_idx, gram_rank)
 	
 	log.info("%s: Writing results..." % (inputs[input_id]))
 	with open("gram-%d.txt" % (input_id), 'w') as f:

@@ -142,9 +142,12 @@ with open("input.txt") as f:
 	inputs = [i.replace("\n", "").lower().split(";") for i in text]
 	log.info(inputs)
 
-lexicon = Lexicon("/home/ulysses/Applications/Unitex3.1beta/Portuguese (Brazil)/Dela/")
+#lexicon = Lexicon("/home/ulysses/Applications/Unitex3.1beta/Portuguese (Brazil)/Dela/")
+lexicon = Lexicon("/home/ulysses/Apps/Unitex3.1beta/Portuguese (Brazil)/Dela/")
 
 def get_candidates(sentences):
+	p_med = re.compile("(\+\w+)")
+	
 	candidates_simple = set()
 	candidates_med = set()
 	candidates_full = set()
@@ -157,7 +160,7 @@ def get_candidates(sentences):
 		for w in sent_words:
 			lemmas = lexicon.get_lemmas(w)
 			pos_full += [set([p[1] for p in lemmas])]
-			pos_med += [set([p[1].split(":")[0] for p in lemmas])]
+			pos_med += [set([p_med.sub("",info) for lemma, info in lemmas])]
 			pos_simple += [set([p[1].split(":")[0].split("+")[0] for p in lemmas])]
 			#print(w, lemmas)
 			#print(pos_med)
@@ -172,6 +175,40 @@ def get_candidates(sentences):
 			candidates_simple = candidates_simple.intersection(set(itertools.product(*pos_simple)))
 			candidates_med = candidates_med.intersection(set(itertools.product(*pos_med)))
 			candidates_full = candidates_full.intersection(set(itertools.product(*pos_full)))
+		#print("ITERTOOLS")
+		#print(candidates_simple)
+	return candidates_simple, candidates_med, candidates_full
+
+def get_grammar_candidates(sentence):
+	p_pos = re.compile("(^\w+)")
+	p_inf_lower = re.compile("\:[A-Z0-9]*([a-z]+)")
+	p_inf_upper = re.compile("\:([A-Z0-9]+)")
+	tokenizer = re.compile('\w+')
+	
+	rl_simple = lambda p : p[1].split(":")[0].split("+")[0]
+	rl_inflectional_full = lambda p : p_med.sub("",p[1])
+	rl_inflectional_single = lambda p : p_med.sub("",p[1])
+	rules = [
+		rl_simple,
+		rl_inflectional_full,
+		lambda p : "%s.%s" % (p[0], rl_simple(p)),
+		lambda p : "%s.%s" % (p[0], rl_inflectional_full(p))
+	]
+	
+	sent_words = tokenizer.findall(s)
+	pos_full = []
+	pos_med = []
+	pos_simple = []
+	for w in sent_words:
+		lemmas = lexicon.get_lemmas(w)
+		pos_full += [set([p[1] for p in lemmas])]
+		pos_med += [set([p_med.sub("",p[1]) for p in lemmas])]
+		pos_simple += [set([p[1].split(":")[0].split("+")[0] for p in lemmas])]
+	
+	
+	candidates_simple = set(itertools.product(*pos_simple))
+	candidates_med = set(itertools.product(*pos_med))
+	candidates_full = set(itertools.product(*pos_full))
 		#print("ITERTOOLS")
 		#print(candidates_simple)
 	return candidates_simple, candidates_med, candidates_full
@@ -267,7 +304,10 @@ tokenizer = re.compile('\w+')
 for input_id, s in enumerate(sentences):
 	log.info("Sentence: %s" % (s))
 	candidates_simple, candidates_med, candidates_full = get_candidates([s]) 
-	candidates_simple, candidates_med, candidates_full = list(candidates_simple), list(candidates_med), list(candidates_simple)
+	candidates_simple, candidates_med, candidates_full = list(candidates_simple), list(candidates_med), list(candidates_full)
+	print(candidates_simple[0])
+	print(candidates_med[0])
+	print(candidates_full[0])
 	samples = []
 	log.info("Verifying grammars...")
 	pruned_grammars = 0
@@ -288,14 +328,17 @@ for input_id, s in enumerate(sentences):
 	tagged_sent = [tagger2.tag([w])[0][1] for w in tokenizer.findall(s)]
 	#print(s, tagged_sent)
 	tagged_sent = np.array(tagged_sent)
-	gram_acc = candidates_simple == tagged_sent
+	
+	candidates = candidates_simple + candidates_med
+	
+	gram_acc = candidates == tagged_sent
 	#print(gram_acc, candidates_simple, tagged_sent)
 	gram_acc = gram_acc.astype(np.float64).sum(axis=1) / gram_acc.shape[1]
 	#print(gram_acc)
 	
 	log.info("Vectorizing...")
 	count_vect = CountVectorizer(dtype=np.float64, token_pattern='\w+')
-	X = [" ".join(tokens) for tokens in candidates_simple]
+	X = [" ".join(tokens) for tokens in candidates]
 	#print(X)
 	X_vect = count_vect.fit_transform(X)
 	#print(X_vect.todense())
@@ -321,12 +364,12 @@ for input_id, s in enumerate(sentences):
 	
 	while True:
 		top_idx = np.argmax(gram_rank)
-		top_gram = candidates_simple[top_idx]
+		top_gram = candidates[top_idx]
 		print("CURRENT BEST: ",top_gram)
 		sorted_grams_idx = np.argsort(-gram_rank, axis=0)
 		
 		selection_strategy = ClusteringSelectStrategy2()
-		selected_grammar = selection_strategy.select_grammar(X_vect, candidates_simple, sorted_grams_idx, gram_rank)
+		selected_grammar = selection_strategy.select_grammar(X_vect, candidates, sorted_grams_idx, gram_rank)
 		print(selected_grammar)
 		sample = find_dataset_match(tagged_dataset, selected_grammar)[0]
 		print(sample)
@@ -335,7 +378,7 @@ for input_id, s in enumerate(sentences):
 		while not answer in ('s', 'n'):
 			answer = input('O Exemplo é pertinente? (s/n)').lower()
 			
-		apply_score(candidates_simple, gram_rank, sample, answer == 's')
+		apply_score(candidates, gram_rank, sample, answer == 's')
 	
 	
 	log.info("%s: Writing results..." % (inputs[input_id]))
@@ -345,7 +388,7 @@ for input_id, s in enumerate(sentences):
 		
 		#print("sorted_grams_idx",sorted_grams_idx)
 		for i, gram_idx in enumerate(sorted_grams_idx):
-			gram = candidates_simple[gram_idx][0]
+			gram = candidates[gram_idx][0]
 			#print(gram_idx, gram)
 			f.write("%d: %s - %.03f\n" % (i, " ".join(gram), gram_rank[gram_idx]))
 log.info("Finished")

@@ -28,7 +28,8 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics.pairwise import euclidean_distances
 
-from pydela.lexicon import Lexicon	
+from pydela.lexicon import Lexicon
+from cachedlexicon import CachedLexicon
 
 import nltk
 from nltk.cluster import KMeansClusterer
@@ -144,8 +145,9 @@ with open("input.txt") as f:
     inputs = [i.replace("\n", "").lower().split(";") for i in text]
     log.info(inputs)
 
-lexicon = Lexicon("/home/ulysses/Applications/Unitex3.1beta/Portuguese (Brazil)/Dela/")
-#lexicon = Lexicon("/home/ulysses/Apps/Unitex3.1beta/Portuguese (Brazil)/Dela/")
+#lexicon = Lexicon("/home/ulysses/Applications/Unitex3.1beta/Portuguese (Brazil)/Dela/")
+lexicon = Lexicon("/home/ulysses/Apps/Unitex3.1beta/Portuguese (Brazil)/Dela/")
+lexicon = CachedLexicon(lexicon)
 
 def get_grammar_candidates(sentence):
     p_pos = re.compile("(^\w+)")
